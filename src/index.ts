@@ -23,6 +23,7 @@ import {
   ensureContainerRuntimeRunning,
 } from './container-runtime.js';
 import {
+  deleteSession,
   getAllChats,
   getAllRegisteredGroups,
   getAllSessions,
@@ -56,6 +57,7 @@ let messageLoopRunning = false;
 
 const channels: Channel[] = [];
 const queue = new GroupQueue();
+const CLEAR_COMMAND_PATTERN = /^\/(clear|reset)$/i;
 
 function loadState(): void {
   lastTimestamp = getRouterState('last_timestamp') || '';
@@ -152,6 +154,21 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   );
 
   if (missedMessages.length === 0) return true;
+
+  // Intercept /clear or /reset — bypass trigger, skip agent
+  const clearMsg = missedMessages.find((m) =>
+    CLEAR_COMMAND_PATTERN.test(m.content.trim()),
+  );
+  if (clearMsg) {
+    delete sessions[group.folder];
+    deleteSession(group.folder);
+    lastAgentTimestamp[chatJid] =
+      missedMessages[missedMessages.length - 1].timestamp;
+    saveState();
+    await channel.sendMessage(chatJid, 'Context cleared.');
+    logger.info({ group: group.name }, 'Context cleared via /clear command');
+    return true;
+  }
 
   // For non-main groups, check if trigger is required and present
   if (!isMainGroup && group.requiresTrigger !== false) {
@@ -370,6 +387,24 @@ async function startMessageLoop(): Promise<void> {
           const channel = findChannel(channels, chatJid);
           if (!channel) {
             logger.warn({ chatJid }, 'No channel owns JID, skipping messages');
+            continue;
+          }
+
+          const clearMsg = groupMessages.find((m) =>
+            CLEAR_COMMAND_PATTERN.test(m.content.trim()),
+          );
+          if (clearMsg) {
+            delete sessions[group.folder];
+            deleteSession(group.folder);
+            lastAgentTimestamp[chatJid] =
+              groupMessages[groupMessages.length - 1].timestamp;
+            saveState();
+            await channel.sendMessage(chatJid, 'Context cleared.');
+            logger.info(
+              { group: group.name },
+              'Context cleared via /clear command',
+            );
+            queue.closeStdin(chatJid);
             continue;
           }
 
