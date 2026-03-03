@@ -17,10 +17,6 @@ Read `.nanoclaw/state.yaml`. If `feishu` is in `applied_skills`, skip to Phase 3
 
 Use `AskUserQuestion` to collect configuration:
 
-AskUserQuestion: Should Feishu replace WhatsApp or run alongside it?
-- **Replace WhatsApp** - Feishu will be the only channel (sets FEISHU_ONLY=true)
-- **Alongside** - Both Feishu and WhatsApp channels active
-
 AskUserQuestion: Which Feishu domain do you use?
 - **Feishu (飞书)** - China mainland (feishu.cn) — default
 - **Lark** - International (larksuite.com)
@@ -50,18 +46,15 @@ npx tsx scripts/apply-skill.ts .claude/skills/add-feishu
 ```
 
 This deterministically:
-- Adds `src/channels/feishu.ts` (FeishuChannel class implementing Channel interface)
+- Adds `src/channels/feishu.ts` (FeishuChannel class with self-registration via `registerChannel`)
 - Adds `src/channels/feishu.test.ts` (40+ unit tests)
-- Three-way merges Feishu support into `src/index.ts` (multi-channel support, findChannel routing)
-- Three-way merges Feishu config into `src/config.ts` (FEISHU_APP_ID, FEISHU_APP_SECRET, FEISHU_ONLY, FEISHU_DOMAIN exports)
-- Three-way merges updated routing tests into `src/routing.test.ts`
+- Appends `import './feishu.js'` to the channel barrel file `src/channels/index.ts`
 - Installs the `@larksuiteoapi/node-sdk` npm dependency
-- Updates `.env.example` with `FEISHU_APP_ID`, `FEISHU_APP_SECRET`, `FEISHU_ONLY`, and `FEISHU_DOMAIN`
+- Updates `.env.example` with `FEISHU_APP_ID`, `FEISHU_APP_SECRET`, and `FEISHU_DOMAIN`
 - Records the application in `.nanoclaw/state.yaml`
 
-If the apply reports merge conflicts, read the intent files:
-- `modify/src/index.ts.intent.md` — what changed and invariants for index.ts
-- `modify/src/config.ts.intent.md` — what changed for config.ts
+If the apply reports merge conflicts, read the intent file:
+- `modify/src/channels/index.ts.intent.md` — what changed and invariants
 
 ### Validate code changes
 
@@ -107,12 +100,6 @@ Add to `.env`:
 ```bash
 FEISHU_APP_ID=<their-app-id>
 FEISHU_APP_SECRET=<their-app-secret>
-```
-
-If they chose to replace WhatsApp:
-
-```bash
-FEISHU_ONLY=true
 ```
 
 If they use Lark (international):
@@ -256,9 +243,7 @@ launchctl load ~/Library/LaunchAgents/com.nanoclaw.plist
 To remove Feishu integration:
 
 1. Delete `src/channels/feishu.ts` and `src/channels/feishu.test.ts`
-2. Remove `FeishuChannel` import and creation from `src/index.ts`
-3. Remove `feishu` variable and revert `syncGroupMetadata` to WhatsApp-only
-4. Remove Feishu config (`FEISHU_APP_ID`, `FEISHU_APP_SECRET`, `FEISHU_ONLY`, `FEISHU_DOMAIN`) from `src/config.ts`
-5. Remove Feishu registrations from SQLite: `sqlite3 store/messages.db "DELETE FROM registered_groups WHERE jid LIKE 'feishu:%'"`
-6. Uninstall: `npm uninstall @larksuiteoapi/node-sdk`
-7. Rebuild: `npm run build && launchctl kickstart -k gui/$(id -u)/com.nanoclaw` (macOS) or `npm run build && systemctl --user restart nanoclaw` (Linux)
+2. Remove the `import './feishu.js'` line from `src/channels/index.ts`
+3. Remove Feishu registrations from SQLite: `sqlite3 store/messages.db "DELETE FROM registered_groups WHERE jid LIKE 'feishu:%'"`
+4. Uninstall: `npm uninstall @larksuiteoapi/node-sdk`
+5. Rebuild: `npm run build && launchctl kickstart -k gui/$(id -u)/com.nanoclaw` (macOS) or `npm run build && systemctl --user restart nanoclaw` (Linux)

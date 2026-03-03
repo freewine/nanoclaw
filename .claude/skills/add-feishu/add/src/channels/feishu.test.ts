@@ -2,6 +2,12 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
 // --- Mocks ---
 
+// Mock registry (registerChannel runs at import time)
+vi.mock('./registry.js', () => ({ registerChannel: vi.fn() }));
+
+// Mock env reader (used by the factory, not needed in unit tests)
+vi.mock('../env.js', () => ({ readEnvFile: vi.fn(() => ({})) }));
+
 // Mock config
 vi.mock('../config.js', () => ({
   ASSISTANT_NAME: 'Andy',
@@ -48,7 +54,7 @@ vi.mock('@larksuiteoapi/node-sdk', () => ({
     };
     // Raw request method — used for bot info endpoint
     request = vi.fn().mockResolvedValue({
-      data: { bot: { open_id: 'ou_bot123' } },
+      bot: { open_id: 'ou_bot123' },
     });
 
     constructor() {
@@ -72,13 +78,14 @@ vi.mock('@larksuiteoapi/node-sdk', () => ({
   },
 }));
 
-import { FeishuChannel, FeishuChannelOpts } from './feishu.js';
+import { FeishuChannel } from './feishu.js';
+import type { ChannelOpts } from './registry.js';
 
 // --- Test helpers ---
 
 function createTestOpts(
-  overrides?: Partial<FeishuChannelOpts>,
-): FeishuChannelOpts {
+  overrides?: Partial<ChannelOpts>,
+): ChannelOpts {
   return {
     onMessage: vi.fn(),
     onChatMetadata: vi.fn(),

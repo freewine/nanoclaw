@@ -1,26 +1,17 @@
 import * as lark from '@larksuiteoapi/node-sdk';
 
 import { ASSISTANT_NAME, TRIGGER_PATTERN } from '../config.js';
+import { readEnvFile } from '../env.js';
 import { logger } from '../logger.js';
-import {
-  Channel,
-  OnChatMetadata,
-  OnInboundMessage,
-  RegisteredGroup,
-} from '../types.js';
-
-export interface FeishuChannelOpts {
-  onMessage: OnInboundMessage;
-  onChatMetadata: OnChatMetadata;
-  registeredGroups: () => Record<string, RegisteredGroup>;
-}
+import { registerChannel, ChannelOpts } from './registry.js';
+import { Channel } from '../types.js';
 
 export class FeishuChannel implements Channel {
   name = 'feishu';
 
   private client: lark.Client | null = null;
   private wsClient: any = null;
-  private opts: FeishuChannelOpts;
+  private opts: ChannelOpts;
   private appId: string;
   private appSecret: string;
   private domain: string;
@@ -32,7 +23,7 @@ export class FeishuChannel implements Channel {
   constructor(
     appId: string,
     appSecret: string,
-    opts: FeishuChannelOpts,
+    opts: ChannelOpts,
     domain = 'feishu',
   ) {
     this.appId = appId;
@@ -280,6 +271,10 @@ export class FeishuChannel implements Channel {
     // Feishu Bot API does not support typing indicators — no-op
   }
 
+  async syncGroups(_force: boolean): Promise<void> {
+    return this.syncChatMetadata();
+  }
+
   /**
    * Sync chat metadata from Feishu.
    * Fetches all bot chats and stores their names in the database.
@@ -352,3 +347,15 @@ export class FeishuChannel implements Channel {
     }
   }
 }
+
+registerChannel('feishu', (opts: ChannelOpts) => {
+  const envVars = readEnvFile(['FEISHU_APP_ID', 'FEISHU_APP_SECRET', 'FEISHU_DOMAIN']);
+  const appId = process.env.FEISHU_APP_ID || envVars.FEISHU_APP_ID || '';
+  const appSecret = process.env.FEISHU_APP_SECRET || envVars.FEISHU_APP_SECRET || '';
+  if (!appId || !appSecret) {
+    logger.warn('Feishu: FEISHU_APP_ID or FEISHU_APP_SECRET not set');
+    return null;
+  }
+  const domain = process.env.FEISHU_DOMAIN || envVars.FEISHU_DOMAIN || 'feishu';
+  return new FeishuChannel(appId, appSecret, opts, domain);
+});
