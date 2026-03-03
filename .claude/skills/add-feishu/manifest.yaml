@@ -1,0 +1,22 @@
+skill: feishu
+version: 1.0.0
+description: "Feishu (飞书) Bot integration via official Lark SDK with WebSocket"
+core_version: 0.1.0
+adds:
+  - src/channels/feishu.ts
+  - src/channels/feishu.test.ts
+modifies:
+  - src/index.ts
+  - src/config.ts
+  - src/routing.test.ts
+structured:
+  npm_dependencies:
+    "@larksuiteoapi/node-sdk": "^1.38.0"
+  env_additions:
+    - FEISHU_APP_ID
+    - FEISHU_APP_SECRET
+    - FEISHU_ONLY
+    - FEISHU_DOMAIN
+conflicts: []
+depends: []
+test: "npx vitest run src/channels/feishu.test.ts"
