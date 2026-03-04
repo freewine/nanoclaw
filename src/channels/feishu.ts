@@ -268,9 +268,7 @@ export class FeishuChannel implements Channel {
     const sanitized = markdown.replace(/^#{1,6}\s+(.+)$/gm, '**$1**');
     return JSON.stringify({
       config: { wide_screen_mode: true },
-      elements: [
-        { tag: 'div', text: { tag: 'lark_md', content: sanitized } },
-      ],
+      elements: [{ tag: 'div', text: { tag: 'lark_md', content: sanitized } }],
     });
   }
 
