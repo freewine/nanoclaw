@@ -49,10 +49,6 @@ When you learn something important:
 
 ## Message Formatting
 
-NEVER use markdown. Only use WhatsApp/Telegram formatting:
-- *single asterisks* for bold (NEVER **double asterisks**)
-- _underscores_ for italic
-- • bullet points
-- ```triple backticks``` for code
+Use standard markdown: **bold**, *italic*, `code`, ```code blocks```, [links](url), - or * for bullet points, etc. Keep messages clean and readable.
 
-No ## headings. No [links](url). No **double stars**.
+Use headings sparingly — prefer bold text for section labels. 

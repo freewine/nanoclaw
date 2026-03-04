@@ -220,36 +220,58 @@ export class FeishuChannel implements Channel {
       return;
     }
 
-    try {
-      const chatId = jid.replace(/^feishu:/, '');
+    const chatId = jid.replace(/^feishu:/, '');
 
-      // Feishu has a ~30KB limit per message — split at 4000 chars to be safe
-      const MAX_LENGTH = 4000;
-      if (text.length <= MAX_LENGTH) {
+    // Feishu interactive cards have a ~30KB limit — split at 4000 chars to be safe
+    const MAX_LENGTH = 4000;
+    const chunks =
+      text.length <= MAX_LENGTH ? [text] : splitAtParagraphs(text, MAX_LENGTH);
+
+    for (const chunk of chunks) {
+      try {
         await this.client.im.message.create({
           params: { receive_id_type: 'chat_id' },
           data: {
             receive_id: chatId,
-            msg_type: 'text',
-            content: JSON.stringify({ text }),
+            msg_type: 'interactive',
+            content: this.buildCardContent(chunk),
           },
         });
-      } else {
-        for (let i = 0; i < text.length; i += MAX_LENGTH) {
-          await this.client.im.message.create({
+      } catch (err) {
+        // Fall back to plain text if card send fails
+        logger.warn(
+          { jid, err },
+          'Card send failed, falling back to plain text',
+        );
+        try {
+          await this.client!.im.message.create({
             params: { receive_id_type: 'chat_id' },
             data: {
               receive_id: chatId,
               msg_type: 'text',
-              content: JSON.stringify({ text: text.slice(i, i + MAX_LENGTH) }),
+              content: JSON.stringify({ text: chunk }),
             },
           });
+        } catch (fallbackErr) {
+          logger.error(
+            { jid, err: fallbackErr },
+            'Failed to send Feishu message (fallback)',
+          );
         }
       }
-      logger.info({ jid, length: text.length }, 'Feishu message sent');
-    } catch (err) {
-      logger.error({ jid, err }, 'Failed to send Feishu message');
     }
+    logger.info({ jid, length: text.length }, 'Feishu message sent');
+  }
+
+  private buildCardContent(markdown: string): string {
+    // Convert markdown headings to bold (lark_md doesn't support # headings)
+    const sanitized = markdown.replace(/^#{1,6}\s+(.+)$/gm, '**$1**');
+    return JSON.stringify({
+      config: { wide_screen_mode: true },
+      elements: [
+        { tag: 'div', text: { tag: 'lark_md', content: sanitized } },
+      ],
+    });
   }
 
   isConnected(): boolean {
@@ -329,23 +351,47 @@ export class FeishuChannel implements Channel {
     );
     while (this.outgoingQueue.length > 0) {
       const item = this.outgoingQueue.shift()!;
-      try {
-        await this.client.im.message.create({
-          params: { receive_id_type: 'chat_id' },
-          data: {
-            receive_id: item.chatId,
-            msg_type: 'text',
-            content: JSON.stringify({ text: item.text }),
-          },
-        });
-      } catch (err) {
-        logger.error(
-          { chatId: item.chatId, err },
-          'Failed to send queued Feishu message',
-        );
-      }
+      await this.sendMessage(`feishu:${item.chatId}`, item.text);
     }
   }
+}
+
+/** Split long text at paragraph boundaries instead of mid-sentence. */
+export function splitAtParagraphs(text: string, maxLength: number): string[] {
+  const chunks: string[] = [];
+  let remaining = text;
+
+  while (remaining.length > maxLength) {
+    let splitIdx = -1;
+
+    // Try splitting at double-newline (paragraph break)
+    const paraSearch = remaining.lastIndexOf('\n\n', maxLength);
+    if (paraSearch > 0) {
+      splitIdx = paraSearch;
+    }
+
+    // Fall back to single newline
+    if (splitIdx <= 0) {
+      const lineSearch = remaining.lastIndexOf('\n', maxLength);
+      if (lineSearch > 0) {
+        splitIdx = lineSearch;
+      }
+    }
+
+    // Hard cut if no newline found
+    if (splitIdx <= 0) {
+      splitIdx = maxLength;
+    }
+
+    chunks.push(remaining.slice(0, splitIdx).trimEnd());
+    remaining = remaining.slice(splitIdx).trimStart();
+  }
+
+  if (remaining) {
+    chunks.push(remaining);
+  }
+
+  return chunks;
 }
 
 registerChannel('feishu', (opts: ChannelOpts) => {

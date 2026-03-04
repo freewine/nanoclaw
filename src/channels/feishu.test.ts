@@ -78,7 +78,7 @@ vi.mock('@larksuiteoapi/node-sdk', () => ({
   },
 }));
 
-import { FeishuChannel } from './feishu.js';
+import { FeishuChannel, splitAtParagraphs } from './feishu.js';
 import type { ChannelOpts } from './registry.js';
 
 // --- Test helpers ---
@@ -717,19 +717,27 @@ describe('FeishuChannel', () => {
   // --- sendMessage ---
 
   describe('sendMessage', () => {
-    it('sends message via Feishu API', async () => {
+    it('sends message as interactive card with lark_md', async () => {
       const opts = createTestOpts();
       const channel = new FeishuChannel('app-id', 'app-secret', opts);
       await channel.connect();
 
-      await channel.sendMessage('feishu:oc_test123', 'Hello');
+      await channel.sendMessage('feishu:oc_test123', 'Hello **world**');
 
       expect(currentClient().im.message.create).toHaveBeenCalledWith({
         params: { receive_id_type: 'chat_id' },
         data: {
           receive_id: 'oc_test123',
-          msg_type: 'text',
-          content: JSON.stringify({ text: 'Hello' }),
+          msg_type: 'interactive',
+          content: JSON.stringify({
+            config: { wide_screen_mode: true },
+            elements: [
+              {
+                tag: 'div',
+                text: { tag: 'lark_md', content: 'Hello **world**' },
+              },
+            ],
+          }),
         },
       });
     });
@@ -750,31 +758,45 @@ describe('FeishuChannel', () => {
       );
     });
 
-    it('splits messages exceeding 4000 characters', async () => {
+    it('converts markdown headings to bold in card content', async () => {
       const opts = createTestOpts();
       const channel = new FeishuChannel('app-id', 'app-secret', opts);
       await channel.connect();
 
-      const longText = 'x'.repeat(5000);
+      await channel.sendMessage(
+        'feishu:oc_test123',
+        '# Title\n\nSome text\n\n## Subtitle',
+      );
+
+      const call = currentClient().im.message.create.mock.calls[0][0];
+      const content = JSON.parse(call.data.content);
+      expect(content.elements[0].text.content).toBe(
+        '**Title**\n\nSome text\n\n**Subtitle**',
+      );
+    });
+
+    it('splits long messages at paragraph boundaries', async () => {
+      const opts = createTestOpts();
+      const channel = new FeishuChannel('app-id', 'app-secret', opts);
+      await channel.connect();
+
+      // Build text with a paragraph break before the 4000 limit
+      const para1 = 'a'.repeat(3500);
+      const para2 = 'b'.repeat(2000);
+      const longText = `${para1}\n\n${para2}`;
       await channel.sendMessage('feishu:oc_test123', longText);
 
       expect(currentClient().im.message.create).toHaveBeenCalledTimes(2);
-      expect(currentClient().im.message.create).toHaveBeenNthCalledWith(
-        1,
-        expect.objectContaining({
-          data: expect.objectContaining({
-            content: JSON.stringify({ text: 'x'.repeat(4000) }),
-          }),
-        }),
-      );
-      expect(currentClient().im.message.create).toHaveBeenNthCalledWith(
-        2,
-        expect.objectContaining({
-          data: expect.objectContaining({
-            content: JSON.stringify({ text: 'x'.repeat(1000) }),
-          }),
-        }),
-      );
+
+      // First chunk should be the first paragraph
+      const call1 = currentClient().im.message.create.mock.calls[0][0];
+      const content1 = JSON.parse(call1.data.content);
+      expect(content1.elements[0].text.content).toBe(para1);
+
+      // Second chunk should be the second paragraph
+      const call2 = currentClient().im.message.create.mock.calls[1][0];
+      const content2 = JSON.parse(call2.data.content);
+      expect(content2.elements[0].text.content).toBe(para2);
     });
 
     it('sends exactly one message at 4000 characters', async () => {
@@ -788,14 +810,38 @@ describe('FeishuChannel', () => {
       expect(currentClient().im.message.create).toHaveBeenCalledTimes(1);
     });
 
-    it('handles send failure gracefully', async () => {
+    it('falls back to plain text when card send fails', async () => {
       const opts = createTestOpts();
       const channel = new FeishuChannel('app-id', 'app-secret', opts);
       await channel.connect();
 
-      currentClient().im.message.create.mockRejectedValueOnce(
-        new Error('Network error'),
-      );
+      // First call (card) fails, second call (fallback text) succeeds
+      currentClient()
+        .im.message.create.mockRejectedValueOnce(new Error('Card error'))
+        .mockResolvedValueOnce(undefined);
+
+      await channel.sendMessage('feishu:oc_test123', 'Will fallback');
+
+      expect(currentClient().im.message.create).toHaveBeenCalledTimes(2);
+      // Second call should be plain text fallback
+      expect(currentClient().im.message.create).toHaveBeenNthCalledWith(2, {
+        params: { receive_id_type: 'chat_id' },
+        data: {
+          receive_id: 'oc_test123',
+          msg_type: 'text',
+          content: JSON.stringify({ text: 'Will fallback' }),
+        },
+      });
+    });
+
+    it('handles both card and fallback failure gracefully', async () => {
+      const opts = createTestOpts();
+      const channel = new FeishuChannel('app-id', 'app-secret', opts);
+      await channel.connect();
+
+      currentClient()
+        .im.message.create.mockRejectedValueOnce(new Error('Card error'))
+        .mockRejectedValueOnce(new Error('Text error'));
 
       // Should not throw
       await expect(
@@ -897,6 +943,46 @@ describe('FeishuChannel', () => {
         createTestOpts(),
       );
       expect(channel.name).toBe('feishu');
+    });
+  });
+
+  // --- splitAtParagraphs ---
+
+  describe('splitAtParagraphs', () => {
+    it('returns single chunk for short text', () => {
+      expect(splitAtParagraphs('short text', 100)).toEqual(['short text']);
+    });
+
+    it('splits at double-newline paragraph boundary', () => {
+      const para1 = 'a'.repeat(80);
+      const para2 = 'b'.repeat(50);
+      const text = `${para1}\n\n${para2}`;
+      const chunks = splitAtParagraphs(text, 100);
+      expect(chunks).toEqual([para1, para2]);
+    });
+
+    it('falls back to single newline when no paragraph break', () => {
+      const line1 = 'a'.repeat(80);
+      const line2 = 'b'.repeat(50);
+      const text = `${line1}\n${line2}`;
+      const chunks = splitAtParagraphs(text, 100);
+      expect(chunks).toEqual([line1, line2]);
+    });
+
+    it('hard cuts when no newline found', () => {
+      const text = 'x'.repeat(250);
+      const chunks = splitAtParagraphs(text, 100);
+      expect(chunks).toEqual([
+        'x'.repeat(100),
+        'x'.repeat(100),
+        'x'.repeat(50),
+      ]);
+    });
+
+    it('trims whitespace around splits', () => {
+      const text = 'first part\n\n  second part';
+      const chunks = splitAtParagraphs(text, 15);
+      expect(chunks).toEqual(['first part', 'second part']);
     });
   });
 

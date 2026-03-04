@@ -116,6 +116,22 @@ mkdir -p data/env && cp .env data/env/env
 
 The container reads environment from `data/env/env`, not `.env` directly.
 
+### Update agent formatting rules
+
+Feishu sends messages as interactive cards using `lark_md`, which supports standard markdown. Update the group CLAUDE.md files to use markdown formatting instead of WhatsApp-specific formatting.
+
+Feishu cards use `lark_md` which supports standard markdown. If `groups/global/CLAUDE.md` or `groups/main/CLAUDE.md` have WhatsApp-specific formatting rules (single asterisks for bold, no headings, no links), replace the "Message Formatting" section with:
+
+```markdown
+## Message Formatting
+
+Use standard markdown: **bold**, *italic*, `code`, ```code blocks```, [links](url), - or * for bullet points, etc. Keep messages clean and readable.
+
+Use headings sparingly — prefer bold text for section labels.
+```
+
+Note: `buildCardContent()` in `feishu.ts` converts `#` headings to bold automatically since lark_md doesn't support heading syntax.
+
 ### Build and restart
 
 ```bash
