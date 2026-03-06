@@ -84,6 +84,7 @@ If the user doesn't have app credentials, tell them:
 > 5. Go to **Permissions & Scopes** and add these scopes:
 >    - `im:message` (Send and receive messages)
 >    - `im:message.group_at_msg` (Receive @mention messages in groups)
+>    - `im:message.group_msg` (Receive all group messages — enables full conversation context when @mentioned)
 >    - `im:chat:readonly` (Read chat list — for group discovery)
 >    - `contact:user.base:readonly` (Read user names — for sender display)
 > 6. Go to **Event Subscriptions** and enable **Use long connection (WebSocket)**
@@ -229,9 +230,20 @@ Check:
 
 ### Permission errors
 
-1. Ensure all required scopes are added: `im:message`, `im:message.group_at_msg`, `im:chat:readonly`, `contact:user.base:readonly`
+1. Ensure all required scopes are added: `im:message`, `im:message.group_at_msg`, `im:message.group_msg`, `im:chat:readonly`, `contact:user.base:readonly`
 2. Re-publish the app after adding new scopes
 3. For `contact:user.base:readonly`: some orgs require admin approval
+
+### Bot only sees @mention messages (no conversation context)
+
+If the bot only responds based on the single @mention message and doesn't seem aware of the surrounding conversation, it's missing the `im:message.group_msg` scope. To fix:
+
+1. Go to [Feishu Open Platform](https://open.feishu.cn/app) (or [Lark Developer](https://open.larksuite.com/app)) → your app → **Permissions & Scopes**
+2. Add the `im:message.group_msg` scope
+3. Go to **Version Management & Release** → **Create Version** → **Submit for review**
+4. No code changes or restart needed — once approved, the bot starts receiving all group messages immediately
+
+With this scope, non-@mention messages are stored but do NOT trigger the agent. When someone @mentions the bot, the agent receives the full conversation history since its last response.
 
 ### Feishu vs Lark
 
