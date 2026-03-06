@@ -8,7 +8,7 @@ Send `/clear` or `/reset` in any registered group chat. The bot replies "Context
 
 ## How It Works
 
-- Exact match only — `/clearall`, `please /clear`, etc. do not trigger it
+- Matches `/clear` or `/reset`, optionally preceded by @mention prefixes (e.g. `@Bot /reset` in Feishu groups) — but `/clearall`, `please /clear`, etc. do not trigger it
 - Deletes the in-memory and persisted session for the group
 - Advances the message cursor so cleared messages aren't reprocessed
 - Terminates any running container so the next message spawns a fresh one

@@ -63,7 +63,7 @@ let messageLoopRunning = false;
 
 const channels: Channel[] = [];
 const queue = new GroupQueue();
-const CLEAR_COMMAND_PATTERN = /^\/(clear|reset)$/i;
+const CLEAR_COMMAND_PATTERN = /^(?:@\S+\s+)*\/(clear|reset)$/i;
 
 function loadState(): void {
   lastTimestamp = getRouterState('last_timestamp') || '';
