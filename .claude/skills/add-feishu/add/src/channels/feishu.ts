@@ -136,6 +136,50 @@ export class FeishuChannel implements Channel {
         } else {
           content = '[Image]';
         }
+      } else if (messageType === 'audio') {
+        let fileKey = '';
+        try {
+          const parsed = JSON.parse(message.content);
+          fileKey = parsed.file_key || '';
+        } catch {
+          /* ignore */
+        }
+
+        const group = this.opts.registeredGroups()[chatJid];
+        if (fileKey && group) {
+          const containerPath = await this.downloadAudio(
+            msgId,
+            fileKey,
+            group.folder,
+          );
+          content = containerPath
+            ? `[Audio: ${containerPath}]`
+            : '[Audio - download failed]';
+        } else {
+          content = '[Audio]';
+        }
+      } else if (messageType === 'sticker') {
+        let fileKey = '';
+        try {
+          const parsed = JSON.parse(message.content);
+          fileKey = parsed.file_key || '';
+        } catch {
+          /* ignore */
+        }
+
+        const group = this.opts.registeredGroups()[chatJid];
+        if (fileKey && group) {
+          const containerPath = await this.downloadSticker(
+            msgId,
+            fileKey,
+            group.folder,
+          );
+          content = containerPath
+            ? `[Sticker: ${containerPath}]`
+            : '[Sticker - download failed]';
+        } else {
+          content = '[Sticker]';
+        }
       } else if (messageType === 'file') {
         let fileKey = '';
         let fileName = '';
@@ -148,7 +192,7 @@ export class FeishuChannel implements Channel {
         }
 
         const group = this.opts.registeredGroups()[chatJid];
-        if (fileName.toLowerCase().endsWith('.pdf') && fileKey && group) {
+        if (fileKey && group) {
           const result = await this.downloadFile(
             msgId,
             fileKey,
@@ -156,9 +200,13 @@ export class FeishuChannel implements Channel {
             group.folder,
           );
           if (result) {
-            content = `[PDF: ${result.relativePath} (${result.sizeKB}KB)]\nUse: pdf-reader extract ${result.relativePath}`;
+            if (fileName.toLowerCase().endsWith('.pdf')) {
+              content = `[PDF: ${result.relativePath} (${result.sizeKB}KB)]\nUse: pdf-reader extract ${result.relativePath}`;
+            } else {
+              content = `[File: ${result.relativePath} (${result.sizeKB}KB)]`;
+            }
           } else {
-            content = '[File]';
+            content = '[File - download failed]';
           }
         } else {
           content = '[File]';
@@ -166,9 +214,7 @@ export class FeishuChannel implements Channel {
       } else {
         // Non-text message placeholders
         const placeholders: Record<string, string> = {
-          audio: '[Audio]',
           media: '[Video]',
-          sticker: '[Sticker]',
           interactive: '[Interactive card]',
           share_chat: '[Shared chat]',
           share_user: '[Shared contact]',
@@ -283,6 +329,60 @@ export class FeishuChannel implements Channel {
       logger.error(
         { messageId, imageKey, err },
         'Failed to download Feishu image',
+      );
+      return null;
+    }
+  }
+
+  private async downloadAudio(
+    messageId: string,
+    fileKey: string,
+    groupFolder: string,
+  ): Promise<string | null> {
+    if (!this.client) return null;
+    const groupDir = resolveGroupFolderPath(groupFolder);
+    const attachDir = path.join(groupDir, 'attachments');
+    fs.mkdirSync(attachDir, { recursive: true });
+    const filename = `audio-${messageId}-${fileKey}.opus`;
+    const hostPath = path.join(attachDir, filename);
+    try {
+      const resp = await this.client.im.messageResource.get({
+        params: { type: 'file' },
+        path: { message_id: messageId, file_key: fileKey },
+      });
+      await (resp as any).writeFile(hostPath);
+      return `attachments/${filename}`;
+    } catch (err) {
+      logger.error(
+        { messageId, fileKey, err },
+        'Failed to download Feishu audio',
+      );
+      return null;
+    }
+  }
+
+  private async downloadSticker(
+    messageId: string,
+    fileKey: string,
+    groupFolder: string,
+  ): Promise<string | null> {
+    if (!this.client) return null;
+    const groupDir = resolveGroupFolderPath(groupFolder);
+    const attachDir = path.join(groupDir, 'attachments');
+    fs.mkdirSync(attachDir, { recursive: true });
+    const filename = `sticker-${messageId}-${fileKey}.png`;
+    const hostPath = path.join(attachDir, filename);
+    try {
+      const resp = await this.client.im.messageResource.get({
+        params: { type: 'image' },
+        path: { message_id: messageId, file_key: fileKey },
+      });
+      await (resp as any).writeFile(hostPath);
+      return `attachments/${filename}`;
+    } catch (err) {
+      logger.error(
+        { messageId, fileKey, err },
+        'Failed to download Feishu sticker',
       );
       return null;
     }

@@ -723,7 +723,7 @@ describe('FeishuChannel', () => {
       );
     });
 
-    it('falls back to [File] for non-PDF files', async () => {
+    it('downloads non-PDF files and includes path with size', async () => {
       const opts = createTestOpts();
       const channel = new FeishuChannel('app-id', 'app-secret', opts);
       await channel.connect();
@@ -737,10 +737,39 @@ describe('FeishuChannel', () => {
       });
       await triggerMessage(event);
 
-      expect(currentClient().im.messageResource.get).not.toHaveBeenCalled();
+      expect(currentClient().im.messageResource.get).toHaveBeenCalledWith({
+        params: { type: 'file' },
+        path: { message_id: 'om_msg001', file_key: 'file_abc' },
+      });
       expect(opts.onMessage).toHaveBeenCalledWith(
         'feishu:oc_test123',
-        expect.objectContaining({ content: '[File]' }),
+        expect.objectContaining({
+          content: '[File: attachments/document.docx (50KB)]',
+        }),
+      );
+    });
+
+    it('falls back on non-PDF file download failure', async () => {
+      const opts = createTestOpts();
+      const channel = new FeishuChannel('app-id', 'app-secret', opts);
+      await channel.connect();
+
+      currentClient().im.messageResource.get.mockRejectedValueOnce(
+        new Error('download error'),
+      );
+
+      const event = createMessageEvent({
+        messageType: 'file',
+        content: JSON.stringify({
+          file_key: 'file_abc',
+          file_name: 'document.docx',
+        }),
+      });
+      await triggerMessage(event);
+
+      expect(opts.onMessage).toHaveBeenCalledWith(
+        'feishu:oc_test123',
+        expect.objectContaining({ content: '[File - download failed]' }),
       );
     });
 
@@ -764,7 +793,7 @@ describe('FeishuChannel', () => {
 
       expect(opts.onMessage).toHaveBeenCalledWith(
         'feishu:oc_test123',
-        expect.objectContaining({ content: '[File]' }),
+        expect.objectContaining({ content: '[File - download failed]' }),
       );
     });
 
@@ -787,7 +816,51 @@ describe('FeishuChannel', () => {
       expect(opts.onMessage).not.toHaveBeenCalled();
     });
 
-    it('stores audio with placeholder', async () => {
+    it('downloads audio and includes path', async () => {
+      const opts = createTestOpts();
+      const channel = new FeishuChannel('app-id', 'app-secret', opts);
+      await channel.connect();
+
+      const event = createMessageEvent({
+        messageType: 'audio',
+        content: JSON.stringify({ file_key: 'file_audio1' }),
+      });
+      await triggerMessage(event);
+
+      expect(currentClient().im.messageResource.get).toHaveBeenCalledWith({
+        params: { type: 'file' },
+        path: { message_id: 'om_msg001', file_key: 'file_audio1' },
+      });
+      expect(opts.onMessage).toHaveBeenCalledWith(
+        'feishu:oc_test123',
+        expect.objectContaining({
+          content: '[Audio: attachments/audio-om_msg001-file_audio1.opus]',
+        }),
+      );
+    });
+
+    it('falls back on audio download failure', async () => {
+      const opts = createTestOpts();
+      const channel = new FeishuChannel('app-id', 'app-secret', opts);
+      await channel.connect();
+
+      currentClient().im.messageResource.get.mockRejectedValueOnce(
+        new Error('download error'),
+      );
+
+      const event = createMessageEvent({
+        messageType: 'audio',
+        content: JSON.stringify({ file_key: 'file_audio_fail' }),
+      });
+      await triggerMessage(event);
+
+      expect(opts.onMessage).toHaveBeenCalledWith(
+        'feishu:oc_test123',
+        expect.objectContaining({ content: '[Audio - download failed]' }),
+      );
+    });
+
+    it('uses audio placeholder for missing file_key', async () => {
       const opts = createTestOpts();
       const channel = new FeishuChannel('app-id', 'app-secret', opts);
       await channel.connect();
@@ -821,7 +894,51 @@ describe('FeishuChannel', () => {
       );
     });
 
-    it('stores sticker with placeholder', async () => {
+    it('downloads sticker and includes path', async () => {
+      const opts = createTestOpts();
+      const channel = new FeishuChannel('app-id', 'app-secret', opts);
+      await channel.connect();
+
+      const event = createMessageEvent({
+        messageType: 'sticker',
+        content: JSON.stringify({ file_key: 'sticker_key1' }),
+      });
+      await triggerMessage(event);
+
+      expect(currentClient().im.messageResource.get).toHaveBeenCalledWith({
+        params: { type: 'image' },
+        path: { message_id: 'om_msg001', file_key: 'sticker_key1' },
+      });
+      expect(opts.onMessage).toHaveBeenCalledWith(
+        'feishu:oc_test123',
+        expect.objectContaining({
+          content: '[Sticker: attachments/sticker-om_msg001-sticker_key1.png]',
+        }),
+      );
+    });
+
+    it('falls back on sticker download failure', async () => {
+      const opts = createTestOpts();
+      const channel = new FeishuChannel('app-id', 'app-secret', opts);
+      await channel.connect();
+
+      currentClient().im.messageResource.get.mockRejectedValueOnce(
+        new Error('download error'),
+      );
+
+      const event = createMessageEvent({
+        messageType: 'sticker',
+        content: JSON.stringify({ file_key: 'sticker_fail' }),
+      });
+      await triggerMessage(event);
+
+      expect(opts.onMessage).toHaveBeenCalledWith(
+        'feishu:oc_test123',
+        expect.objectContaining({ content: '[Sticker - download failed]' }),
+      );
+    });
+
+    it('uses sticker placeholder for missing file_key', async () => {
       const opts = createTestOpts();
       const channel = new FeishuChannel('app-id', 'app-secret', opts);
       await channel.connect();
