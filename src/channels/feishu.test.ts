@@ -26,9 +26,7 @@ vi.mock('../logger.js', () => ({
 
 // Mock group-folder
 vi.mock('../group-folder.js', () => ({
-  resolveGroupFolderPath: vi.fn(
-    (folder: string) => `/mock/groups/${folder}`,
-  ),
+  resolveGroupFolderPath: vi.fn((folder: string) => `/mock/groups/${folder}`),
 }));
 
 // Mock fs

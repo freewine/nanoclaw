@@ -91,7 +91,7 @@ Available groups are provided in `/workspace/ipc/available_groups.json`:
 }
 ```
 
-Groups are ordered by most recent activity. The list is synced from WhatsApp daily.
+Groups are ordered by most recent activity. The list is synced from Feishu daily.
 
 If a group the user mentions isn't in the list, request a fresh sync:
 
@@ -129,7 +129,7 @@ Groups are registered in the SQLite `registered_groups` table:
 ```
 
 Fields:
-- **Key**: The chat JID (unique identifier — WhatsApp, Telegram, Slack, Discord, etc.)
+- **Key**: The chat JID (unique identifier — Feishu, etc.)
 - **name**: Display name for the group
 - **folder**: Channel-prefixed folder name under `groups/` for this group's files and memory
 - **trigger**: The trigger word (usually same as global, but could differ)
@@ -152,10 +152,8 @@ Fields:
 5. Optionally create an initial `CLAUDE.md` for the group
 
 Folder naming convention — channel prefix with underscore separator:
-- WhatsApp "Family Chat" → `whatsapp_family-chat`
-- Telegram "Dev Team" → `telegram_dev-team`
-- Discord "General" → `discord_general`
-- Slack "Engineering" → `slack_engineering`
+- Feishu "Family Chat" → `feishu_family-chat`
+- Feishu "Dev Team" → `feishu_dev-team`
 - Use lowercase, hyphens for the group name part
 
 #### Adding Additional Directories for a Group
