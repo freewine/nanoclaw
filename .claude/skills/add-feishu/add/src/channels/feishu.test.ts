@@ -24,6 +24,23 @@ vi.mock('../logger.js', () => ({
   },
 }));
 
+// Mock group-folder
+vi.mock('../group-folder.js', () => ({
+  resolveGroupFolderPath: vi.fn(
+    (folder: string) => `/mock/groups/${folder}`,
+  ),
+}));
+
+// Mock fs
+vi.mock('fs', () => ({
+  default: {
+    mkdirSync: vi.fn(),
+    statSync: vi.fn(() => ({ size: 51200 })),
+  },
+  mkdirSync: vi.fn(),
+  statSync: vi.fn(() => ({ size: 51200 })),
+}));
+
 // --- Lark SDK mock ---
 
 type Handler = (...args: any[]) => any;
@@ -38,6 +55,11 @@ vi.mock('@larksuiteoapi/node-sdk', () => ({
     im = {
       message: {
         create: vi.fn().mockResolvedValue(undefined),
+      },
+      messageResource: {
+        get: vi.fn().mockResolvedValue({
+          writeFile: vi.fn().mockResolvedValue(undefined),
+        }),
       },
       chat: {
         list: vi.fn().mockResolvedValue({
@@ -585,12 +607,75 @@ describe('FeishuChannel', () => {
   // --- Non-text messages ---
 
   describe('non-text messages', () => {
-    it('stores image with placeholder', async () => {
+    it('downloads image and includes container path', async () => {
       const opts = createTestOpts();
       const channel = new FeishuChannel('app-id', 'app-secret', opts);
       await channel.connect();
 
-      const event = createMessageEvent({ messageType: 'image', content: '{}' });
+      const event = createMessageEvent({
+        messageType: 'image',
+        content: JSON.stringify({ image_key: 'img_xxx' }),
+      });
+      await triggerMessage(event);
+
+      expect(currentClient().im.messageResource.get).toHaveBeenCalledWith({
+        params: { type: 'image' },
+        path: { message_id: 'om_msg001', file_key: 'img_xxx' },
+      });
+      expect(opts.onMessage).toHaveBeenCalledWith(
+        'feishu:oc_test123',
+        expect.objectContaining({
+          content: '[Image: attachments/img-om_msg001-img_xxx.png]',
+        }),
+      );
+    });
+
+    it('falls back on image download failure', async () => {
+      const opts = createTestOpts();
+      const channel = new FeishuChannel('app-id', 'app-secret', opts);
+      await channel.connect();
+
+      currentClient().im.messageResource.get.mockRejectedValueOnce(
+        new Error('download error'),
+      );
+
+      const event = createMessageEvent({
+        messageType: 'image',
+        content: JSON.stringify({ image_key: 'img_fail' }),
+      });
+      await triggerMessage(event);
+
+      expect(opts.onMessage).toHaveBeenCalledWith(
+        'feishu:oc_test123',
+        expect.objectContaining({ content: '[Image - download failed]' }),
+      );
+    });
+
+    it('skips image download for unregistered chats', async () => {
+      const opts = createTestOpts();
+      const channel = new FeishuChannel('app-id', 'app-secret', opts);
+      await channel.connect();
+
+      const event = createMessageEvent({
+        chatId: 'oc_unknown999',
+        messageType: 'image',
+        content: JSON.stringify({ image_key: 'img_xxx' }),
+      });
+      await triggerMessage(event);
+
+      expect(currentClient().im.messageResource.get).not.toHaveBeenCalled();
+      expect(opts.onMessage).not.toHaveBeenCalled();
+    });
+
+    it('uses placeholder for image with malformed JSON', async () => {
+      const opts = createTestOpts();
+      const channel = new FeishuChannel('app-id', 'app-secret', opts);
+      await channel.connect();
+
+      const event = createMessageEvent({
+        messageType: 'image',
+        content: 'not valid json',
+      });
       await triggerMessage(event);
 
       expect(opts.onMessage).toHaveBeenCalledWith(
@@ -611,6 +696,97 @@ describe('FeishuChannel', () => {
         'feishu:oc_test123',
         expect.objectContaining({ content: '[File]' }),
       );
+    });
+
+    it('downloads PDF and includes reference with size', async () => {
+      const opts = createTestOpts();
+      const channel = new FeishuChannel('app-id', 'app-secret', opts);
+      await channel.connect();
+
+      const event = createMessageEvent({
+        messageType: 'file',
+        content: JSON.stringify({
+          file_key: 'file_abc',
+          file_name: 'report.pdf',
+        }),
+      });
+      await triggerMessage(event);
+
+      expect(currentClient().im.messageResource.get).toHaveBeenCalledWith({
+        params: { type: 'file' },
+        path: { message_id: 'om_msg001', file_key: 'file_abc' },
+      });
+      expect(opts.onMessage).toHaveBeenCalledWith(
+        'feishu:oc_test123',
+        expect.objectContaining({
+          content:
+            '[PDF: attachments/report.pdf (50KB)]\nUse: pdf-reader extract attachments/report.pdf',
+        }),
+      );
+    });
+
+    it('falls back to [File] for non-PDF files', async () => {
+      const opts = createTestOpts();
+      const channel = new FeishuChannel('app-id', 'app-secret', opts);
+      await channel.connect();
+
+      const event = createMessageEvent({
+        messageType: 'file',
+        content: JSON.stringify({
+          file_key: 'file_abc',
+          file_name: 'document.docx',
+        }),
+      });
+      await triggerMessage(event);
+
+      expect(currentClient().im.messageResource.get).not.toHaveBeenCalled();
+      expect(opts.onMessage).toHaveBeenCalledWith(
+        'feishu:oc_test123',
+        expect.objectContaining({ content: '[File]' }),
+      );
+    });
+
+    it('falls back on PDF download failure', async () => {
+      const opts = createTestOpts();
+      const channel = new FeishuChannel('app-id', 'app-secret', opts);
+      await channel.connect();
+
+      currentClient().im.messageResource.get.mockRejectedValueOnce(
+        new Error('download error'),
+      );
+
+      const event = createMessageEvent({
+        messageType: 'file',
+        content: JSON.stringify({
+          file_key: 'file_abc',
+          file_name: 'report.pdf',
+        }),
+      });
+      await triggerMessage(event);
+
+      expect(opts.onMessage).toHaveBeenCalledWith(
+        'feishu:oc_test123',
+        expect.objectContaining({ content: '[File]' }),
+      );
+    });
+
+    it('skips PDF download for unregistered chats', async () => {
+      const opts = createTestOpts();
+      const channel = new FeishuChannel('app-id', 'app-secret', opts);
+      await channel.connect();
+
+      const event = createMessageEvent({
+        chatId: 'oc_unknown999',
+        messageType: 'file',
+        content: JSON.stringify({
+          file_key: 'file_abc',
+          file_name: 'report.pdf',
+        }),
+      });
+      await triggerMessage(event);
+
+      expect(currentClient().im.messageResource.get).not.toHaveBeenCalled();
+      expect(opts.onMessage).not.toHaveBeenCalled();
     });
 
     it('stores audio with placeholder', async () => {

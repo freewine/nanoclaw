@@ -1,7 +1,11 @@
+import fs from 'fs';
+import path from 'path';
+
 import * as lark from '@larksuiteoapi/node-sdk';
 
 import { ASSISTANT_NAME, TRIGGER_PATTERN } from '../config.js';
 import { readEnvFile } from '../env.js';
+import { resolveGroupFolderPath } from '../group-folder.js';
 import { logger } from '../logger.js';
 import { registerChannel, ChannelOpts } from './registry.js';
 import { Channel } from '../types.js';
@@ -110,11 +114,58 @@ export class FeishuChannel implements Channel {
         } catch {
           content = message.content || '';
         }
+      } else if (messageType === 'image') {
+        let imageKey = '';
+        try {
+          const parsed = JSON.parse(message.content);
+          imageKey = parsed.image_key || '';
+        } catch {
+          /* ignore */
+        }
+
+        const group = this.opts.registeredGroups()[chatJid];
+        if (imageKey && group) {
+          const containerPath = await this.downloadImage(
+            msgId,
+            imageKey,
+            group.folder,
+          );
+          content = containerPath
+            ? `[Image: ${containerPath}]`
+            : '[Image - download failed]';
+        } else {
+          content = '[Image]';
+        }
+      } else if (messageType === 'file') {
+        let fileKey = '';
+        let fileName = '';
+        try {
+          const parsed = JSON.parse(message.content);
+          fileKey = parsed.file_key || '';
+          fileName = parsed.file_name || '';
+        } catch {
+          /* ignore */
+        }
+
+        const group = this.opts.registeredGroups()[chatJid];
+        if (fileName.toLowerCase().endsWith('.pdf') && fileKey && group) {
+          const result = await this.downloadFile(
+            msgId,
+            fileKey,
+            fileName,
+            group.folder,
+          );
+          if (result) {
+            content = `[PDF: ${result.relativePath} (${result.sizeKB}KB)]\nUse: pdf-reader extract ${result.relativePath}`;
+          } else {
+            content = '[File]';
+          }
+        } else {
+          content = '[File]';
+        }
       } else {
         // Non-text message placeholders
         const placeholders: Record<string, string> = {
-          image: '[Image]',
-          file: '[File]',
           audio: '[Audio]',
           media: '[Video]',
           sticker: '[Sticker]',
@@ -210,6 +261,62 @@ export class FeishuChannel implements Channel {
     }
   }
 
+  private async downloadImage(
+    messageId: string,
+    imageKey: string,
+    groupFolder: string,
+  ): Promise<string | null> {
+    if (!this.client) return null;
+    const groupDir = resolveGroupFolderPath(groupFolder);
+    const attachDir = path.join(groupDir, 'attachments');
+    fs.mkdirSync(attachDir, { recursive: true });
+    const filename = `img-${messageId}-${imageKey}.png`;
+    const hostPath = path.join(attachDir, filename);
+    try {
+      const resp = await this.client.im.messageResource.get({
+        params: { type: 'image' },
+        path: { message_id: messageId, file_key: imageKey },
+      });
+      await (resp as any).writeFile(hostPath);
+      return `attachments/${filename}`;
+    } catch (err) {
+      logger.error(
+        { messageId, imageKey, err },
+        'Failed to download Feishu image',
+      );
+      return null;
+    }
+  }
+
+  private async downloadFile(
+    messageId: string,
+    fileKey: string,
+    fileName: string,
+    groupFolder: string,
+  ): Promise<{ relativePath: string; sizeKB: number } | null> {
+    if (!this.client) return null;
+    const groupDir = resolveGroupFolderPath(groupFolder);
+    const attachDir = path.join(groupDir, 'attachments');
+    fs.mkdirSync(attachDir, { recursive: true });
+    const hostPath = path.join(attachDir, fileName);
+    try {
+      const resp = await this.client.im.messageResource.get({
+        params: { type: 'file' },
+        path: { message_id: messageId, file_key: fileKey },
+      });
+      await (resp as any).writeFile(hostPath);
+      const stats = fs.statSync(hostPath);
+      const sizeKB = Math.round(stats.size / 1024);
+      return { relativePath: `attachments/${fileName}`, sizeKB };
+    } catch (err) {
+      logger.error(
+        { messageId, fileKey, err },
+        'Failed to download Feishu file',
+      );
+      return null;
+    }
+  }
+
   async sendMessage(jid: string, text: string): Promise<void> {
     if (!this.client || !this.connected) {
       this.outgoingQueue.push({ chatId: jid.replace(/^feishu:/, ''), text });
@@ -268,9 +375,7 @@ export class FeishuChannel implements Channel {
     const sanitized = markdown.replace(/^#{1,6}\s+(.+)$/gm, '**$1**');
     return JSON.stringify({
       config: { wide_screen_mode: true },
-      elements: [
-        { tag: 'div', text: { tag: 'lark_md', content: sanitized } },
-      ],
+      elements: [{ tag: 'div', text: { tag: 'lark_md', content: sanitized } }],
     });
   }
 
