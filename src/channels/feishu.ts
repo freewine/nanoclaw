@@ -494,6 +494,50 @@ export class FeishuChannel implements Channel {
     logger.info('Feishu bot stopped');
   }
 
+  async sendAudio(jid: string, audioPath: string): Promise<void> {
+    if (!this.client || !this.connected) {
+      logger.warn({ jid }, 'Feishu disconnected, cannot send audio');
+      return;
+    }
+
+    const chatId = jid.replace(/^feishu:/, '');
+
+    try {
+      // Upload audio file to Feishu
+      const uploadResp = await this.client.im.file.create({
+        data: {
+          file_type: 'opus',
+          file_name: path.basename(audioPath),
+          file: fs.createReadStream(audioPath),
+        },
+      });
+
+      const respData = uploadResp as any;
+      const fileKey = (respData?.data?.file_key || respData?.file_key) as string | undefined;
+      if (!fileKey) {
+        logger.error(
+          { jid, audioPath, resp: JSON.stringify(respData).slice(0, 500) },
+          'Feishu file upload returned no file_key',
+        );
+        return;
+      }
+
+      // Send as audio message
+      await this.client.im.message.create({
+        params: { receive_id_type: 'chat_id' },
+        data: {
+          receive_id: chatId,
+          msg_type: 'audio',
+          content: JSON.stringify({ file_key: fileKey }),
+        },
+      });
+
+      logger.info({ jid, audioPath }, 'Feishu audio message sent');
+    } catch (err) {
+      logger.error({ jid, audioPath, err }, 'Failed to send Feishu audio message');
+    }
+  }
+
   async setTyping(_jid: string, _isTyping: boolean): Promise<void> {
     // Feishu Bot API does not support typing indicators — no-op
   }

@@ -1,0 +1,20 @@
+skill: gemini-tts
+version: 1.0.0
+description: "Text-to-speech via Google Gemini 2.5 Flash TTS (server-side)"
+core_version: 0.1.0
+adds:
+  - src/tts.ts
+modifies:
+  - src/types.ts
+  - src/ipc.ts
+  - src/ipc-auth.test.ts
+  - src/router.ts
+  - src/index.ts
+  - container/agent-runner/src/ipc-mcp-stdio.ts
+structured:
+  env_additions:
+    - GEMINI_API_KEY
+conflicts: []
+depends:
+  - feishu
+test: "npx vitest run src/ipc-auth.test.ts"
