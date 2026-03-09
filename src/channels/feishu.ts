@@ -513,7 +513,9 @@ export class FeishuChannel implements Channel {
       });
 
       const respData = uploadResp as any;
-      const fileKey = (respData?.data?.file_key || respData?.file_key) as string | undefined;
+      const fileKey = (respData?.data?.file_key || respData?.file_key) as
+        | string
+        | undefined;
       if (!fileKey) {
         logger.error(
           { jid, audioPath, resp: JSON.stringify(respData).slice(0, 500) },
@@ -534,7 +536,10 @@ export class FeishuChannel implements Channel {
 
       logger.info({ jid, audioPath }, 'Feishu audio message sent');
     } catch (err) {
-      logger.error({ jid, audioPath, err }, 'Failed to send Feishu audio message');
+      logger.error(
+        { jid, audioPath, err },
+        'Failed to send Feishu audio message',
+      );
     }
   }
 

@@ -65,7 +65,9 @@ export async function generateSpeech(
   }
 
   const result = (await response.json()) as {
-    candidates?: { content?: { parts?: { inlineData?: { data?: string } }[] } }[];
+    candidates?: {
+      content?: { parts?: { inlineData?: { data?: string } }[] };
+    }[];
   };
   const inlineData = result.candidates?.[0]?.content?.parts?.[0]?.inlineData;
 

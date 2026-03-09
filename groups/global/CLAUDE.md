@@ -39,6 +39,19 @@ When working as a sub-agent or teammate, only use `send_message` if instructed t
 
 Files you create are saved in `/workspace/group/`. Use this for notes, research, or anything that should persist.
 
+## File Sharing
+
+When you generate a file the user needs to download (documents, spreadsheets, images, exports, etc.):
+
+1. Save the file to `/tmp/`
+2. Upload to S3 and delete the temp file:
+```bash
+aws s3 cp /tmp/<filename> s3://freewine-labs/public/nanoclaw/<filename> && rm /tmp/<filename>
+```
+3. Send the download link: `https://freewine.aws.qianjiadi.com/public/nanoclaw/<filename>`
+
+Use descriptive filenames (e.g., `2026-03-08_quarterly-report.pdf`). This does NOT apply to workspace files meant for memory/persistence — only files intended for user download.
+
 ## Memory
 
 The `conversations/` folder contains searchable history of past conversations. Use this to recall context from previous sessions.
