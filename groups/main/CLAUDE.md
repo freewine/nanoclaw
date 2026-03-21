@@ -68,9 +68,9 @@ Use headings sparingly — prefer bold text for section labels.
 When the user asks for voice output ("read this as voice", "send as voice message", "TTS"):
 
 1. Format text for speech (no markdown, natural sentences, spell out abbreviations)
-2. Call: `mcp__nanoclaw__send_tts_message(text: "speech text", voice: "Kore")`
+2. Call: `mcp__nanoclaw__send_tts_message(text: "speech text", voice: "mimo_default")`
 
-Available voices: Kore (default), Charon, Fenrir, Puck, Zephyr, Leda, Orus, Pegasus
+Available voices: mimo_default (default), default_zh (Chinese female), default_en (English female)
 
 **Important**: Only format text for speech when generating TTS audio. Regular text messages should keep normal markdown formatting.
 
