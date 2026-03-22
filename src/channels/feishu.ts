@@ -473,9 +473,30 @@ export class FeishuChannel implements Channel {
   private buildCardContent(markdown: string): string {
     // Convert markdown headings to bold (lark_md doesn't support # headings)
     const sanitized = markdown.replace(/^#{1,6}\s+(.+)$/gm, '**$1**');
+    const segments = splitContentIntoSegments(sanitized);
+
+    const elements: Record<string, unknown>[] = [];
+    for (const seg of segments) {
+      if (seg.type === 'table') {
+        elements.push(parseMarkdownTable(seg.content));
+      } else {
+        elements.push({
+          tag: 'div',
+          text: { tag: 'lark_md', content: seg.content },
+        });
+      }
+    }
+
+    if (elements.length === 0) {
+      elements.push({
+        tag: 'div',
+        text: { tag: 'lark_md', content: sanitized },
+      });
+    }
+
     return JSON.stringify({
       config: { wide_screen_mode: true },
-      elements: [{ tag: 'div', text: { tag: 'lark_md', content: sanitized } }],
+      elements,
     });
   }
 
@@ -610,10 +631,115 @@ export class FeishuChannel implements Channel {
   }
 }
 
+/** Regex matching a markdown table block (header + separator + data rows). */
+const TABLE_BLOCK_RE =
+  /(?:^|\n)(\|[^\n]*\|\s*\n\|[\s:]*-[\s\-:|]*\|\s*\n(?:\|[^\n]*\|(?:\s*\n(?=\|))?)+)/g;
+
+/** Return [start, end] ranges of markdown table blocks in text. */
+export function findTableRanges(text: string): [number, number][] {
+  const ranges: [number, number][] = [];
+  const re = new RegExp(TABLE_BLOCK_RE.source, 'g');
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const tableStr = m[1];
+    const start = m.index + (m[0].length - tableStr.length);
+    ranges.push([start, start + tableStr.length]);
+  }
+  return ranges;
+}
+
+export type ContentSegment =
+  | { type: 'text'; content: string }
+  | { type: 'table'; content: string };
+
+/** Split markdown into ordered text and table segments. */
+export function splitContentIntoSegments(text: string): ContentSegment[] {
+  const ranges = findTableRanges(text);
+  if (ranges.length === 0) return [{ type: 'text', content: text }];
+
+  const segments: ContentSegment[] = [];
+  let cursor = 0;
+  for (const [start, end] of ranges) {
+    if (start > cursor) {
+      const t = text.slice(cursor, start).trim();
+      if (t) segments.push({ type: 'text', content: t });
+    }
+    segments.push({ type: 'table', content: text.slice(start, end).trim() });
+    cursor = end;
+  }
+  if (cursor < text.length) {
+    const t = text.slice(cursor).trim();
+    if (t) segments.push({ type: 'text', content: t });
+  }
+  return segments;
+}
+
+/** Parse a pipe-delimited row into trimmed cell values. */
+function parseRow(line: string): string[] {
+  return line
+    .replace(/^\|/, '')
+    .replace(/\|$/, '')
+    .split('|')
+    .map((c) => c.trim());
+}
+
+/** Convert a markdown table string into a Feishu card table element. */
+export function parseMarkdownTable(tableStr: string): Record<string, unknown> {
+  const lines = tableStr
+    .trim()
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const headers = parseRow(lines[0]);
+  // Skip separator line (lines[1])
+  const dataLines = lines.slice(2);
+
+  const columns = headers.map((h, i) => ({
+    name: `col_${i}`,
+    display_name: h,
+    width: 'auto' as const,
+    data_type: 'text' as const,
+  }));
+
+  const rows = dataLines.map((line) => {
+    const cells = parseRow(line);
+    const row: Record<string, string> = {};
+    for (let i = 0; i < headers.length; i++) {
+      row[`col_${i}`] = cells[i] ?? '';
+    }
+    return row;
+  });
+
+  return {
+    tag: 'table',
+    page_size: rows.length,
+    row_height: 'low',
+    header_style: {
+      text_align: 'left',
+      text_size: 'normal',
+      background_style: 'grey',
+      text_color: 'default',
+      bold: true,
+      lines: 1,
+    },
+    columns,
+    rows,
+  };
+}
+
 /** Split long text at paragraph boundaries instead of mid-sentence. */
 export function splitAtParagraphs(text: string, maxLength: number): string[] {
+  // Protect table blocks from being split by masking their internal newlines
+  const ranges = findTableRanges(text);
+  let masked = text;
+  for (const [start, end] of [...ranges].reverse()) {
+    const block = text.slice(start, end);
+    masked =
+      masked.slice(0, start) + block.replace(/\n/g, '\x00') + masked.slice(end);
+  }
+
   const chunks: string[] = [];
-  let remaining = text;
+  let remaining = masked;
 
   while (remaining.length > maxLength) {
     let splitIdx = -1;
@@ -632,9 +758,11 @@ export function splitAtParagraphs(text: string, maxLength: number): string[] {
       }
     }
 
-    // Hard cut if no newline found
+    // Hard cut if no newline found — but skip past any masked table block
     if (splitIdx <= 0) {
-      splitIdx = maxLength;
+      // Find the next real newline after maxLength (table may span beyond it)
+      const nextNewline = remaining.indexOf('\n', maxLength);
+      splitIdx = nextNewline > 0 ? nextNewline : maxLength;
     }
 
     chunks.push(remaining.slice(0, splitIdx).trimEnd());
@@ -645,7 +773,8 @@ export function splitAtParagraphs(text: string, maxLength: number): string[] {
     chunks.push(remaining);
   }
 
-  return chunks;
+  // Restore masked newlines
+  return chunks.map((c) => c.replace(/\x00/g, '\n'));
 }
 
 registerChannel('feishu', (opts: ChannelOpts) => {

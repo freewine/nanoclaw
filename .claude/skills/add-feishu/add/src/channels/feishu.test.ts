@@ -98,7 +98,13 @@ vi.mock('@larksuiteoapi/node-sdk', () => ({
   },
 }));
 
-import { FeishuChannel, splitAtParagraphs } from './feishu.js';
+import {
+  FeishuChannel,
+  splitAtParagraphs,
+  splitContentIntoSegments,
+  parseMarkdownTable,
+  findTableRanges,
+} from './feishu.js';
 import type { ChannelOpts } from './registry.js';
 
 // --- Test helpers ---
@@ -1274,6 +1280,153 @@ describe('FeishuChannel', () => {
       const text = 'first part\n\n  second part';
       const chunks = splitAtParagraphs(text, 15);
       expect(chunks).toEqual(['first part', 'second part']);
+    });
+
+    it('does not split inside a markdown table', () => {
+      const table =
+        '| Name | Value |\n| --- | --- |\n| row1 | val1 |\n| row2 | val2 |';
+      const text = `intro\n\n${table}\n\noutro`;
+      // Use a small maxLength that would normally split inside the table
+      const chunks = splitAtParagraphs(text, 40);
+      // The table should remain intact in one chunk
+      const tableChunk = chunks.find((c) => c.includes('| Name |'));
+      expect(tableChunk).toContain('| row2 | val2 |');
+    });
+  });
+
+  // --- parseMarkdownTable ---
+
+  describe('parseMarkdownTable', () => {
+    it('parses a simple 2-column table', () => {
+      const table =
+        '| Name | Age |\n| --- | --- |\n| Alice | 30 |\n| Bob | 25 |';
+      const result = parseMarkdownTable(table) as any;
+      expect(result.tag).toBe('table');
+      expect(result.columns).toEqual([
+        { name: 'col_0', display_name: 'Name', width: 'auto', data_type: 'text' },
+        { name: 'col_1', display_name: 'Age', width: 'auto', data_type: 'text' },
+      ]);
+      expect(result.rows).toEqual([
+        { col_0: 'Alice', col_1: '30' },
+        { col_0: 'Bob', col_1: '25' },
+      ]);
+      expect(result.page_size).toBe(2);
+    });
+
+    it('pads missing cells with empty strings', () => {
+      const table = '| A | B | C |\n| --- | --- | --- |\n| x |';
+      const result = parseMarkdownTable(table) as any;
+      expect(result.rows[0]).toEqual({ col_0: 'x', col_1: '', col_2: '' });
+    });
+
+    it('handles formatted text in cells', () => {
+      const table =
+        '| Feature | Status |\n| --- | --- |\n| **Bold** | `done` |';
+      const result = parseMarkdownTable(table) as any;
+      expect(result.rows[0]).toEqual({ col_0: '**Bold**', col_1: '`done`' });
+    });
+  });
+
+  // --- splitContentIntoSegments ---
+
+  describe('splitContentIntoSegments', () => {
+    it('returns single text segment when no tables', () => {
+      const segments = splitContentIntoSegments('just text');
+      expect(segments).toEqual([{ type: 'text', content: 'just text' }]);
+    });
+
+    it('splits text-table-text', () => {
+      const table =
+        '| A | B |\n| --- | --- |\n| 1 | 2 |';
+      const text = `intro\n\n${table}\n\noutro`;
+      const segments = splitContentIntoSegments(text);
+      expect(segments).toHaveLength(3);
+      expect(segments[0]).toEqual({ type: 'text', content: 'intro' });
+      expect(segments[1].type).toBe('table');
+      expect(segments[2]).toEqual({ type: 'text', content: 'outro' });
+    });
+
+    it('handles table at start of text', () => {
+      const table = '| A | B |\n| --- | --- |\n| 1 | 2 |';
+      const text = `${table}\n\nafter`;
+      const segments = splitContentIntoSegments(text);
+      expect(segments[0].type).toBe('table');
+      expect(segments[1]).toEqual({ type: 'text', content: 'after' });
+    });
+
+    it('handles multiple tables', () => {
+      const t1 = '| A |\n| --- |\n| 1 |';
+      const t2 = '| B |\n| --- |\n| 2 |';
+      const text = `${t1}\n\nmiddle\n\n${t2}`;
+      const segments = splitContentIntoSegments(text);
+      expect(segments.filter((s) => s.type === 'table')).toHaveLength(2);
+      expect(segments.filter((s) => s.type === 'text')).toHaveLength(1);
+    });
+  });
+
+  // --- findTableRanges ---
+
+  describe('findTableRanges', () => {
+    it('returns empty array for text with no tables', () => {
+      expect(findTableRanges('no tables here')).toEqual([]);
+    });
+
+    it('finds a single table range', () => {
+      const table = '| A |\n| --- |\n| 1 |';
+      const text = `before\n${table}\nafter`;
+      const ranges = findTableRanges(text);
+      expect(ranges).toHaveLength(1);
+      expect(text.slice(ranges[0][0], ranges[0][1])).toContain('| A |');
+    });
+  });
+
+  // --- buildCardContent with tables ---
+
+  describe('sendMessage with tables', () => {
+    it('produces table element for markdown table', async () => {
+      const opts = createTestOpts();
+      const channel = new FeishuChannel('app-id', 'app-secret', opts);
+      await channel.connect();
+
+      const table = '| Col1 | Col2 |\n| --- | --- |\n| a | b |';
+      await channel.sendMessage('feishu:oc_test123', table);
+
+      const call = currentClient().im.message.create.mock.calls[0][0];
+      const content = JSON.parse(call.data.content);
+      expect(content.elements[0].tag).toBe('table');
+      expect(content.elements[0].columns).toHaveLength(2);
+      expect(content.elements[0].rows).toEqual([{ col_0: 'a', col_1: 'b' }]);
+    });
+
+    it('produces div-table-div for text with embedded table', async () => {
+      const opts = createTestOpts();
+      const channel = new FeishuChannel('app-id', 'app-secret', opts);
+      await channel.connect();
+
+      const table = '| X |\n| --- |\n| 1 |';
+      const text = `Hello\n\n${table}\n\nBye`;
+      await channel.sendMessage('feishu:oc_test123', text);
+
+      const call = currentClient().im.message.create.mock.calls[0][0];
+      const content = JSON.parse(call.data.content);
+      expect(content.elements).toHaveLength(3);
+      expect(content.elements[0].tag).toBe('div');
+      expect(content.elements[1].tag).toBe('table');
+      expect(content.elements[2].tag).toBe('div');
+    });
+
+    it('still produces single div when no tables present', async () => {
+      const opts = createTestOpts();
+      const channel = new FeishuChannel('app-id', 'app-secret', opts);
+      await channel.connect();
+
+      await channel.sendMessage('feishu:oc_test123', 'No tables here');
+
+      const call = currentClient().im.message.create.mock.calls[0][0];
+      const content = JSON.parse(call.data.content);
+      expect(content.elements).toHaveLength(1);
+      expect(content.elements[0].tag).toBe('div');
+      expect(content.elements[0].text.content).toBe('No tables here');
     });
   });
 
