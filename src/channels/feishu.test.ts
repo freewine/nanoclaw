@@ -1303,8 +1303,18 @@ describe('FeishuChannel', () => {
       const result = parseMarkdownTable(table) as any;
       expect(result.tag).toBe('table');
       expect(result.columns).toEqual([
-        { name: 'col_0', display_name: 'Name', width: 'auto', data_type: 'text' },
-        { name: 'col_1', display_name: 'Age', width: 'auto', data_type: 'text' },
+        {
+          name: 'col_0',
+          display_name: 'Name',
+          width: 'auto',
+          data_type: 'text',
+        },
+        {
+          name: 'col_1',
+          display_name: 'Age',
+          width: 'auto',
+          data_type: 'text',
+        },
       ]);
       expect(result.rows).toEqual([
         { col_0: 'Alice', col_1: '30' },
@@ -1336,8 +1346,7 @@ describe('FeishuChannel', () => {
     });
 
     it('splits text-table-text', () => {
-      const table =
-        '| A | B |\n| --- | --- |\n| 1 | 2 |';
+      const table = '| A | B |\n| --- | --- |\n| 1 | 2 |';
       const text = `intro\n\n${table}\n\noutro`;
       const segments = splitContentIntoSegments(text);
       expect(segments).toHaveLength(3);
