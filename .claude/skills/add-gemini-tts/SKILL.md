@@ -140,7 +140,7 @@ launchctl kickstart -k gui/$(id -u)/com.nanoclaw
 
 Send a message in a registered Feishu chat:
 
-> @Wange TTS: Hello, this is a test of the text to speech system.
+> @DreamLand TTS: Hello, this is a test of the text to speech system.
 
 The agent should:
 1. Call `send_tts_message` with speech-friendly text
